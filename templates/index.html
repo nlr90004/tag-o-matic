@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tag-o-matic | Flickr Bulk Metadata Editor</title>
+  
+  <!-- 1. Adobe Typekit Link -->
+  <link rel="stylesheet" href="https://use.typekit.net/ypv2juy.css">
+
+  <!-- 2. Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- 3. Tailwind Configuration -->
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['grtsk-vf', 'system-ui', 'sans-serif'],
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- 4. Variable Font Settings Stylesheet -->
+  <style>
+    /* Base Variable Font Rules */
+    body {
+      font-family: 'grtsk-vf', system-ui, -apple-system, sans-serif;
+      font-variation-settings: "slnt" 0, "wdth" 75, "wght" 400;
+    }
+
+    /* Regular Text (Narrow Normal) */
+    p, span, div, input, textarea, select, label {
+      font-variation-settings: "slnt" 0, "wdth" 75, "wght" 400;
+    }
+
+    /* Bold Text Everywhere Else (Narrow Semibold) */
+    b, strong, h1, h2, h3, h4, h5, h6,
+    .font-bold, .font-semibold, .font-extrabold, .font-black {
+      font-variation-settings: "slnt" 0, "wdth" 75, "wght" 600;
+    }
+
+    /* Buttons, Interactive Elements & Logo Badge (Expanded Bold) */
+    button, 
+    .btn, 
+    a.bg-pink-600, 
+    a[href="/auth"], 
+    button span,
+    header div.bg-pink-600 {
+      font-variation-settings: "slnt" 0, "wdth" 125, "wght" 700 !important;
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen" data-authenticated="{{ 'true' if authenticated else 'false' }}">
+
+  <!-- Header -->
+  <header class="border-b border-slate-800 bg-slate-950 px-6 py-4 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="bg-pink-600 text-white font-black text-xl px-3 py-1 rounded-lg tracking-wider">TAG-O-MATIC</div>
+      <span class="text-xs text-slate-400 font-mono">v1.2 • Pro Edition</span>
+    </div>
+    {% if authenticated %}
+      <div class="flex items-center gap-4">
+        <button id="undo-btn" onclick="triggerUndo()" disabled class="bg-slate-800 hover:bg-slate-700 disabled:opacity-40 border border-slate-700 text-slate-200 px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-2 transition-all">
+          <span>↩ Undo Last Action</span>
+          <span id="undo-count" class="bg-slate-900 text-pink-400 text-[10px] px-1.5 py-0.5 rounded-full font-bold">0</span>
+        </button>
+        <a href="/logout" class="text-xs text-slate-400 hover:text-white transition-colors">Disconnect</a>
+      </div>
+    {% endif %}
+  </header>
+
+  <main class="max-w-7xl mx-auto p-6">
+    {% if not authenticated %}
+      <div class="flex flex-col items-center justify-center py-20 text-center">
+        <h1 class="text-4xl font-extrabold text-white mb-4">Batch Edit Your Flickr Stream</h1>
+        <p class="text-slate-400 max-w-md mb-8">Connect your Flickr account to select multiple photos and perform bulk updates to tags, titles, EXIF dates, and geolocation.</p>
+        <a href="/auth" class="bg-pink-600 hover:bg-pink-500 text-white font-bold px-8 py-3 rounded-xl shadow-lg transition-all hover:scale-105">
+          Connect to Flickr
+        </a>
+      </div>
+    {% else %}
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
+        
+        <!-- Left Column: Toolbar + Photo Grid + Pagination -->
+        <div class="lg:col-span-2 space-y-4">
+          
+          <!-- View Controls Toolbar -->
+          <div class="flex flex-wrap items-center justify-between bg-slate-950 px-4 py-3 rounded-xl border border-slate-800 gap-3 text-xs">
+            <div class="flex items-center gap-2">
+              <span class="text-slate-400">Sort By:</span>
+              <select id="sort-select" onchange="loadPhotos(1)" class="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200 focus:outline-none">
+                <option value="date-posted-desc">Date Posted (Newest First)</option>
+                <option value="date-posted-asc">Date Posted (Oldest First)</option>
+                <option value="date-taken-desc">Date Taken (Newest First)</option>
+                <option value="date-taken-asc">Date Taken (Oldest First)</option>
+              </select>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <span class="text-slate-400">Show:</span>
+              <select id="per-page-select" onchange="loadPhotos(1)" class="bg-slate-900 border border-slate-800 rounded px-2 py-1 text-slate-200 focus:outline-none">
+                <option value="12">12 photos</option>
+                <option value="24" selected>24 photos</option>
+                <option value="48">48 photos</option>
+                <option value="96">96 photos</option>
+              </select>
+            </div>
+
+            <div class="text-slate-400">
+              <span id="selected-count" class="font-bold text-pink-400">0</span> selected
+            </div>
+          </div>
+
+          <!-- Photo Grid with Native Aspect Ratio Support -->
+          <div id="photo-grid" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 bg-slate-950 p-4 rounded-xl border border-slate-800 min-h-[420px]">
+            <p class="col-span-full text-center text-slate-500 py-12">Loading photos...</p>
+          </div>
+
+          <!-- Pagination -->
+          <div class="flex items-center justify-between bg-slate-950 px-4 py-3 rounded-xl border border-slate-800 text-xs">
+            <button id="prev-btn" onclick="changePage(-1)" disabled class="px-3 py-1.5 rounded bg-slate-900 border border-slate-800 disabled:opacity-40 hover:bg-slate-800 transition-colors">← Previous</button>
+            <span id="page-indicator" class="text-slate-400 font-mono">Page 1 of 1</span>
+            <button id="next-btn" onclick="changePage(1)" disabled class="px-3 py-1.5 rounded bg-slate-900 border border-slate-800 disabled:opacity-40 hover:bg-slate-800 transition-colors">Next →</button>
+          </div>
+        </div>
+
+        <!-- Right Column: Inspector & Actions Panel -->
+        <div class="sticky top-6 bg-slate-950 p-6 rounded-xl border border-slate-800 space-y-5 max-h-[calc(100vh-3rem)] overflow-y-auto">
+          
+          <!-- Tabs Navigation -->
+          <div class="flex border-b border-slate-800 gap-2 pb-2 text-xs font-semibold">
+            <button onclick="switchTab('basic')" id="tab-basic" class="tab-btn text-pink-400 border-b-2 border-pink-500 pb-1 px-1">Batch Meta</button>
+            <button onclick="switchTab('replace')" id="tab-replace" class="tab-btn text-slate-400 hover:text-slate-200 pb-1 px-1">Find & Replace</button>
+            <button onclick="switchTab('exif')" id="tab-exif" class="tab-btn text-slate-400 hover:text-slate-200 pb-1 px-1">Dates & Geo</button>
+            <button onclick="switchTab('inspector')" id="tab-inspector" class="tab-btn text-slate-400 hover:text-slate-200 pb-1 px-1">Inspector</button>
+          </div>
+
+          <!-- Tab 1: Basic Batch Metadata -->
+          <div id="panel-basic" class="tab-panel space-y-4">
+            <div>
+              <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Add Tags</label>
+              <input type="text" id="add-tags" placeholder='e.g. "summer 2026" nature' class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-pink-500">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Prefix Title</label>
+              <input type="text" id="title-prefix" placeholder='e.g. [Vacation]' class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-pink-500">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Append to Description</label>
+              <textarea id="append-desc" rows="3" placeholder="Additional notes..." class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-pink-500"></textarea>
+            </div>
+            <button onclick="applyBasicChanges()" class="w-full bg-pink-600 hover:bg-pink-500 text-white font-bold py-2.5 rounded-lg text-sm transition-colors">Apply Metadata</button>
+          </div>
+
+          <!-- Tab 2: Find & Replace Tags -->
+          <div id="panel-replace" class="tab-panel hidden space-y-4">
+            <div>
+              <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Find Tag</label>
+              <input type="text" id="find-tag" placeholder="e.g. oldtag" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-pink-500">
+            </div>
+            <div>
+              <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Replace With Tag</label>
+              <input type="text" id="replace-tag" placeholder="e.g. newtag (leave blank to delete)" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-pink-500">
+            </div>
+            <button onclick="applyTagReplace()" class="w-full bg-pink-600 hover:bg-pink-500 text-white font-bold py-2.5 rounded-lg text-sm transition-colors">Replace / Remove Tag</button>
+          </div>
+
+          <!-- Tab 3: Dates & Geotagging -->
+          <div id="panel-exif" class="tab-panel hidden space-y-4">
+            <div>
+              <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Set Date Taken</label>
+              <input type="datetime-local" id="date-taken" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-pink-500">
+              <button onclick="applyDates()" class="mt-2 w-full bg-slate-800 hover:bg-slate-700 text-white font-semibold py-2 rounded-lg text-xs border border-slate-700">Update Date Taken</button>
+            </div>
+            <hr class="border-slate-800">
+            <div>
+              <label class="block text-xs font-semibold uppercase text-slate-400 mb-1">Set Geolocation Coordinates</label>
+              <div class="grid grid-cols-2 gap-2">
+                <input type="number" step="any" id="geo-lat" placeholder="Latitude" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-pink-500">
+                <input type="number" step="any" id="geo-lon" placeholder="Longitude" class="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-pink-500">
+              </div>
+              <button onclick="applyGeo()" class="mt-2 w-full bg-slate-800 hover:bg-slate-700 text-white font-semibold py-2 rounded-lg text-xs border border-slate-700">Set GPS Location</button>
+            </div>
+          </div>
+
+          <!-- Tab 4: Photo Metadata Inspector -->
+          <div id="panel-inspector" class="tab-panel hidden space-y-3">
+            <h3 class="text-xs font-bold uppercase text-slate-400">Selected Photo Inspector</h3>
+            <div id="inspector-content" class="bg-slate-900 p-3 rounded-lg border border-slate-800 text-xs text-slate-300 space-y-2">
+              <p class="text-slate-500 italic">Click the ℹ️ info button on any photo in the grid to inspect its metadata.</p>
+            </div>
+          </div>
+
+          <div id="status-msg" class="text-xs text-center font-mono text-slate-400 min-h-[20px]"></div>
+
+        </div>
+
+      </div>
+    {% endif %}
+  </main>
+
+  <script>
+    let selectedPhotoIds = new Set();
+    let currentPage = 1;
+    let totalPages = 1;
+    let undoStack = [];
+
+    async function loadPhotos(page = 1) {
+      const grid = document.getElementById('photo-grid');
+      const sortVal = document.getElementById('sort-select').value;
+      const perPageVal = document.getElementById('per-page-select').value;
+
+      grid.innerHTML = `<p class="col-span-full text-center text-slate-500 py-12">Loading photos...</p>`;
+      
+      try {
+        const res = await fetch(`/api/photos?page=${page}&per_page=${perPageVal}&sort=${sortVal}`);
+        const data = await res.json();
+        
+        currentPage = data.page || 1;
+        totalPages = data.pages || 1;
+        updatePaginationUI();
+
+        if (!data.photo || data.photo.length === 0) {
+          grid.innerHTML = `<p class="col-span-full text-center text-slate-500 py-12">No photos found.</p>`;
+          return;
+        }
+
+        grid.innerHTML = data.photo.map(p => {
+          const imgSrc = p.url_s || p.url_m || '';
+          const photoTitle = p.title || 'Untitled';
+          const isSelected = selectedPhotoIds.has(p.id);
+          
+          return `
+            <div class="relative group bg-slate-900 rounded-lg p-2 border-2 ${isSelected ? 'border-pink-500' : 'border-slate-800'} hover:border-pink-500/50 transition-all flex flex-col justify-between">
+              <div onclick="toggleSelect('${p.id}', this.parentElement)" class="relative aspect-square w-full flex items-center justify-center bg-slate-950 rounded overflow-hidden cursor-pointer">
+                <img src="${imgSrc}" alt="${photoTitle}" class="max-h-full max-w-full object-contain">
+                <div class="overlay absolute inset-0 bg-pink-600/20 ${isSelected ? '' : 'opacity-0'} transition-opacity"></div>
+              </div>
+              <div class="flex items-center justify-between mt-2 pt-1 border-t border-slate-800/60">
+                <span class="text-[10px] text-slate-400 truncate max-w-[80%]">${photoTitle}</span>
+                <button onclick="inspectPhoto('${p.id}', event)" title="View Metadata" class="text-xs hover:scale-125 transition-transform">ℹ️</button>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+      } catch (e) {
+        grid.innerHTML = `<p class="col-span-full text-center text-red-400 py-12">Failed to load photos.</p>`;
+      }
+    }
+
+    async function inspectPhoto(photoId, event) {
+      if (event) event.stopPropagation();
+      switchTab('inspector');
+      const box = document.getElementById('inspector-content');
+      box.innerHTML = `<p class="text-slate-500 italic">Fetching details...</p>`;
+
+      try {
+        const res = await fetch(`/api/photo-details?photo_id=${photoId}`);
+        const photo = await res.json();
+
+        const title = photo.title?._content || 'Untitled';
+        const desc = photo.description?._content || 'No description';
+        const dateTaken = photo.dates?.taken || 'N/A';
+        const tags = photo.tags?.tag?.map(t => t.raw || t._content).join(', ') || 'No tags';
+        const lat = photo.location?.latitude;
+        const lon = photo.location?.longitude;
+        const geoStr = (lat && lon) ? `${lat}, ${lon}` : 'No coordinates set';
+
+        box.innerHTML = `
+          <div><strong class="text-slate-400">ID:</strong> <span class="font-mono text-[10px] text-slate-200">${photo.id}</span></div>
+          <div><strong class="text-slate-400">Title:</strong> <span class="text-slate-200">${title}</span></div>
+          <div><strong class="text-slate-400">Description:</strong> <p class="text-slate-300 mt-0.5 bg-slate-950 p-1.5 rounded">${desc}</p></div>
+          <div><strong class="text-slate-400">Date Taken:</strong> <span class="text-slate-200">${dateTaken}</span></div>
+          <div><strong class="text-slate-400">Tags:</strong> <p class="text-slate-300 mt-0.5 bg-slate-950 p-1.5 rounded">${tags}</p></div>
+          <div><strong class="text-slate-400">GPS:</strong> <span class="text-slate-200">${geoStr}</span></div>
+        `;
+      } catch (e) {
+        box.innerHTML = `<p class="text-red-400">Error fetching photo metadata.</p>`;
+      }
+    }
+
+    function toggleSelect(id, wrapperEl) {
+      if (selectedPhotoIds.has(id)) {
+        selectedPhotoIds.delete(id);
+        wrapperEl.classList.remove('border-pink-500');
+        wrapperEl.classList.add('border-slate-800');
+        wrapperEl.querySelector('.overlay').classList.add('opacity-0');
+      } else {
+        selectedPhotoIds.add(id);
+        wrapperEl.classList.add('border-pink-500');
+        wrapperEl.classList.remove('border-slate-800');
+        wrapperEl.querySelector('.overlay').classList.remove('opacity-0');
+      }
+      document.getElementById('selected-count').innerText = selectedPhotoIds.size;
+    }
+
+    function changePage(delta) {
+      const target = currentPage + delta;
+      if (target >= 1 && target <= totalPages) {
+        loadPhotos(target);
+      }
+    }
+
+    function updatePaginationUI() {
+      document.getElementById('page-indicator').innerText = `Page ${currentPage} of ${totalPages}`;
+      document.getElementById('prev-btn').disabled = currentPage <= 1;
+      document.getElementById('next-btn').disabled = currentPage >= totalPages;
+    }
+
+    function switchTab(tabKey) {
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+      document.querySelectorAll('.tab-btn').forEach(b => {
+        b.classList.remove('text-pink-400', 'border-b-2', 'border-pink-500');
+        b.classList.add('text-slate-400');
+      });
+
+      document.getElementById(`panel-${tabKey}`).classList.remove('hidden');
+      const activeBtn = document.getElementById(`tab-${tabKey}`);
+      activeBtn.classList.add('text-pink-400', 'border-b-2', 'border-pink-500');
+      activeBtn.classList.remove('text-slate-400');
+    }
+
+    function pushUndoSnapshot(snapshots) {
+      if (snapshots && snapshots.length > 0) {
+        undoStack.push(snapshots);
+        updateUndoUI();
+      }
+    }
+
+    function updateUndoUI() {
+      const btn = document.getElementById('undo-btn');
+      const count = document.getElementById('undo-count');
+      btn.disabled = undoStack.length === 0;
+      count.innerText = undoStack.length;
+    }
+
+    async function triggerUndo() {
+      if (undoStack.length === 0) return;
+      const lastSnapshots = undoStack.pop();
+      updateUndoUI();
+      setStatus("Undoing last batch action...");
+
+      const res = await fetch('/api/undo', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ snapshots: lastSnapshots })
+      });
+      const result = await res.json();
+      setStatus(`Undo complete on ${result.success.length} photos!`, "text-emerald-400");
+      loadPhotos(currentPage);
+    }
+
+    function setStatus(msg, colorClass = "text-pink-400") {
+      const status = document.getElementById('status-msg');
+      status.innerText = msg;
+      status.className = `text-xs text-center font-mono ${colorClass}`;
+    }
+
+    async function applyBasicChanges() {
+      if (selectedPhotoIds.size === 0) return setStatus("Please select at least one photo.", "text-amber-400");
+      setStatus("Processing metadata update...");
+
+      const payload = {
+        photo_ids: Array.from(selectedPhotoIds),
+        add_tags: document.getElementById('add-tags').value,
+        title_prefix: document.getElementById('title-prefix').value,
+        append_description: document.getElementById('append-desc').value
+      };
+
+      const res = await fetch('/api/bulk-update', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+      const result = await res.json();
+      pushUndoSnapshot(result.snapshots);
+      setStatus(`Success: ${result.success.length} | Failed: ${result.failed.length}`, "text-emerald-400");
+    }
+
+    async function applyTagReplace() {
+      if (selectedPhotoIds.size === 0) return setStatus("Please select at least one photo.", "text-amber-400");
+      const findTag = document.getElementById('find-tag').value.trim();
+      if (!findTag) return setStatus("Enter a tag to find.", "text-amber-400");
+
+      setStatus("Replacing tags...");
+      const payload = {
+        photo_ids: Array.from(selectedPhotoIds),
+        find_tag: findTag,
+        replace_tag: document.getElementById('replace-tag').value.trim()
+      };
+
+      const res = await fetch('/api/replace-tags', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+      const result = await res.json();
+      pushUndoSnapshot(result.snapshots);
+      setStatus(`Success: ${result.success.length} | Failed: ${result.failed.length}`, "text-emerald-400");
+    }
+
+    async function applyDates() {
+      if (selectedPhotoIds.size === 0) return setStatus("Please select at least one photo.", "text-amber-400");
+      const dtInput = document.getElementById('date-taken').value;
+      if (!dtInput) return setStatus("Select a date/time.", "text-amber-400");
+
+      const formattedDate = dtInput.replace('T', ' ') + ':00';
+      setStatus("Updating EXIF dates...");
+
+      const payload = { photo_ids: Array.from(selectedPhotoIds), date_taken: formattedDate };
+      const res = await fetch('/api/bulk-dates', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+      const result = await res.json();
+      pushUndoSnapshot(result.snapshots);
+      setStatus(`Success: ${result.success.length} | Failed: ${result.failed.length}`, "text-emerald-400");
+    }
+
+    async function applyGeo() {
+      if (selectedPhotoIds.size === 0) return setStatus("Please select at least one photo.", "text-amber-400");
+      const lat = parseFloat(document.getElementById('geo-lat').value);
+      const lon = parseFloat(document.getElementById('geo-lon').value);
+
+      if (isNaN(lat) || isNaN(lon)) return setStatus("Enter valid latitude & longitude.", "text-amber-400");
+
+      setStatus("Setting GPS coordinates...");
+      const payload = { photo_ids: Array.from(selectedPhotoIds), lat: lat, lon: lon };
+      const res = await fetch('/api/bulk-geo', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+      const result = await res.json();
+      pushUndoSnapshot(result.snapshots);
+      setStatus(`Success: ${result.success.length} | Failed: ${result.failed.length}`, "text-emerald-400");
+    }
+
+    if (document.body.dataset.authenticated === 'true') {
+  loadPhotos();
+}
+  </script>
+</body>
+</html>
