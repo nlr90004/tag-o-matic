@@ -12,3 +12,6 @@ env/
 
 # macOS system files
 .DS_Store
+
+# Unused fonts
+static/fonts/
